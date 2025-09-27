@@ -335,4 +335,3 @@ def initialize_app():
 if __name__=="__main__":
     conn,cursor=init_database()
     initialize_app()
-git status
