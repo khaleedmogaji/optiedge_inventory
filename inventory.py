@@ -28,17 +28,9 @@ def init_database():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         price REAL NOT NULL,
-        quantity INTEGER NOT NULL
+        quantity INTEGER NOT NULL,
+        updated_at TEXT
     )""")
-
-    # --- Add this block here ---
-    # Ensure updated_at column exists
-    cursor.execute("PRAGMA table_info(products)")
-    columns = [col[1] for col in cursor.fetchall()]
-    if 'updated_at' not in columns:
-        cursor.execute("ALTER TABLE products ADD COLUMN updated_at TEXT")
-        conn.commit()
-    # ----------------------------
 
     # Create users table if it doesn't exist
     cursor.execute("""
@@ -56,6 +48,107 @@ def init_database():
     
     return conn, cursor
 
+# --- Input Validation ---
+# --- Input Validation ---
+# --- Input Validation ---
+def validate_price_input():
+    """Validate price input in real-time"""
+    current_text = price_entry.get()
+    if current_text == "":
+        return True
+    
+    # Allow only numbers and one decimal point
+    allowed_chars = set('0123456789.')
+    if all(c in allowed_chars for c in current_text):
+        # Check for only one decimal point
+        if current_text.count('.') <= 1:
+            return True
+    return False
+
+def validate_quantity_input():
+    """Validate quantity input in real-time"""
+    current_text = qty_entry.get()
+    if current_text == "":
+        return True
+    
+    # Allow only numbers
+    return current_text.isdigit()
+
+def on_price_keypress(event):
+    """Handle price keypress events"""
+    char = event.char
+    if char == '' or char == '\b':  # Allow backspace and delete
+        return True
+    
+    # Allow only numbers and one decimal point
+    if char.isdigit():
+        return True
+    elif char == '.' and '.' not in price_entry.get():
+        return True
+    
+    # Prevent any other characters
+    return "break"
+
+def on_quantity_keypress(event):
+    """Handle quantity keypress events"""
+    char = event.char
+    if char == '' or char == '\b':  # Allow backspace and delete
+        return True
+    
+    # Allow only numbers
+    if char.isdigit():
+        return True
+    
+    # Prevent any other characters
+    return "break"
+
+def format_price_on_focusout(event):
+    """Format price with currency symbol when focus leaves"""
+    try:
+        price_str = price_entry.get().strip()
+        if price_str and price_str != '₦':
+            # Remove existing currency symbol and commas
+            clean_price = price_str.replace('₦', '').replace(',', '').strip()
+            if clean_price:
+                price_val = float(clean_price)
+                formatted = f"₦{price_val:,.2f}"
+                price_entry.delete(0, tk.END)
+                price_entry.insert(0, formatted)
+    except ValueError:
+        pass  # Ignore formatting errors if not a valid number
+
+def format_quantity_on_focusout(event):
+    """Format quantity with commas when focus leaves"""
+    try:
+        qty_str = qty_entry.get().strip()
+        if qty_str:
+            # Remove existing commas
+            clean_qty = qty_str.replace(',', '').strip()
+            if clean_qty:
+                qty_val = int(clean_qty)
+                formatted = f"{qty_val:,}"
+                qty_entry.delete(0, tk.END)
+                qty_entry.insert(0, formatted)
+    except ValueError:
+        pass  # Ignore formatting errors if not a valid number
+
+def on_paste(event):
+    """Prevent pasting non-numeric values"""
+    # Get clipboard content
+    try:
+        clipboard = root.clipboard_get()
+        # Check if it's a valid number
+        if event.widget == price_entry:
+            # For price, allow numbers and decimal point
+            if not all(c.isdigit() or c == '.' for c in clipboard.replace(',', '')):
+                return "break"  # Prevent paste
+        elif event.widget == qty_entry:
+            # For quantity, allow only numbers
+            if not all(c.isdigit() for c in clipboard.replace(',', '')):
+                return "break"  # Prevent paste
+    except:
+        pass
+    return True
 
 # --- Validation ---
 def validate_product_input(name, price_str, qty_str):
@@ -155,7 +248,11 @@ def create_inventory_frame():
 def create_form_frame():
     global name_entry, price_entry, qty_entry, form
     form = ttk.LabelFrame(inventory_frame, text="📦 Product Details", padding=20, style="Modern.TLabelframe"); form.pack(padx=25,pady=15, fill="x")
-    name_entry = ttk.Entry(form, style="Modern.TEntry"); price_entry = ttk.Entry(form, style="Modern.TEntry"); qty_entry = ttk.Entry(form, style="Modern.TEntry")
+    
+    name_entry = ttk.Entry(form, style="Modern.TEntry")
+    price_entry = ttk.Entry(form, style="Modern.TEntry")  
+    qty_entry = ttk.Entry(form, style="Modern.TEntry")
+    
     labels=["Product Name:","Price (₦):","Quantity:"]; entries=[name_entry,price_entry,qty_entry]
     for i,(label,entry) in enumerate(zip(labels,entries)): 
         ttk.Label(form,text=label,font=("Segoe UI",11,"bold")).grid(row=i,column=0,padx=5,pady=5,sticky="w"); entry.grid(row=i,column=1,padx=5,pady=5,sticky="ew")
@@ -165,11 +262,19 @@ def create_form_frame():
                                ("🗑️ Delete","danger",delete_product),("🧹 Clear","warning",clear_entries),
                                ("📤 Export","primary",export_csv)]:
         create_modern_button(btn_frame,txt,style_name,cmd).pack(pady=5,fill="x")
-    # Bind price auto-format
-    price_entry.bind("<FocusOut>", price_entry)
-    price_entry.bind("<KeyRelease>", price_entry)
-
-
+    
+    # ✅ FIXED INPUT VALIDATION - Using key bindings instead of validatecommand
+    # Bind keypress events for real-time validation
+    price_entry.bind("<KeyPress>", on_price_keypress)
+    qty_entry.bind("<KeyPress>", on_quantity_keypress)
+    
+    # Add formatting on focus out
+    price_entry.bind("<FocusOut>", format_price_on_focusout)
+    qty_entry.bind("<FocusOut>", format_quantity_on_focusout)
+    
+    # Prevent pasting non-numeric values
+    price_entry.bind("<Control-v>", on_paste)
+    qty_entry.bind("<Control-v>", on_paste)
 def create_search_frame():
     global search_entry
     search_frame=ttk.LabelFrame(inventory_frame,text="🔍 Search Products",padding=15,style="Modern.TLabelframe"); search_frame.pack(fill="x", padx=25, pady=10)
@@ -180,8 +285,16 @@ def create_search_frame():
 def create_table_frame():
     global tree
     table_frame=ttk.LabelFrame(inventory_frame,text="📋 Product Inventory",padding=15,style="Modern.TLabelframe"); table_frame.pack(fill="both", padx=25, pady=10, expand=True)
-    columns=("ID","Name","Price","Quantity","Total Value"); tree=ttk.Treeview(table_frame,columns=columns,show="headings",style="Custom.Treeview",height=15)
-    col_config={"ID":{"width":80,"anchor":"center","text":"🆔 ID"},"Name":{"width":350,"anchor":"w","text":"📛 Product Name"},"Price":{"width":150,"anchor":"e","text":"💰 Price"},"Quantity":{"width":120,"anchor":"center","text":"📦 Quantity"},"Total Value":{"width":150,"anchor":"e","text":"💵 Total Value"}}
+    columns=("ID","Name","Price","Quantity","Total Value","Last Updated")  # Added new column
+    tree=ttk.Treeview(table_frame,columns=columns,show="headings",style="Custom.Treeview",height=15)
+    col_config={
+        "ID":{"width":80,"anchor":"center","text":"🆔 ID"},
+        "Name":{"width":300,"anchor":"w","text":"📛 Product Name"},
+        "Price":{"width":120,"anchor":"e","text":"💰 Price"},
+        "Quantity":{"width":100,"anchor":"center","text":"📦 Quantity"},
+        "Total Value":{"width":120,"anchor":"e","text":"💵 Total Value"},
+        "Last Updated":{"width":150,"anchor":"center","text":"🕒 Last Updated"}  # New column config
+    }
     for col in columns: 
         tree.heading(col,text=col_config[col]["text"],command=lambda c=col: sort_treeview(c,False))
         tree.column(col, **{k:v for k,v in col_config[col].items() if k!="text"})
@@ -205,7 +318,10 @@ def add_product():
     try:
         name=name_entry.get().strip(); price_str=price_entry.get().strip(); qty_str=qty_entry.get().strip()
         price, qty = validate_product_input(name, price_str, qty_str)
-        cursor.execute("INSERT INTO products (name,price,quantity) VALUES (?,?,?)",(name,price,qty)); conn.commit()
+        # Add current date/time
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("INSERT INTO products (name,price,quantity,updated_at) VALUES (?,?,?,?)",
+                      (name,price,qty,current_time)); conn.commit()
         load_products(); clear_entries(); messagebox.showinfo("Success","✅ Product added successfully")
     except Exception as e: messagebox.showerror("Error",str(e))
 
@@ -216,8 +332,10 @@ def update_product():
     try:
         name=name_entry.get().strip(); price_str=price_entry.get().strip(); qty_str=qty_entry.get().strip()
         price, qty = validate_product_input(name, price_str, qty_str)
-        cursor.execute("UPDATE products SET name=?, price=?, quantity=? WHERE id=?",
-                       (name, price, qty, item_id)); conn.commit()
+        # Add current date/time
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("UPDATE products SET name=?, price=?, quantity=?, updated_at=? WHERE id=?",
+                       (name, price, qty, current_time, item_id)); conn.commit()
         load_products(); clear_entries(); messagebox.showinfo("Success","✅ Product updated successfully")
     except Exception as e: messagebox.showerror("Error",f"Failed to update product: {str(e)}"); conn.rollback()
 
@@ -246,7 +364,20 @@ def load_products():
     for i in tree.get_children(): tree.delete(i)
     cursor.execute("SELECT * FROM products ORDER BY id DESC"); rows=cursor.fetchall()
     for i,row in enumerate(rows):
-        val=(row[0],row[1],f"₦{row[2]:,.2f}",f"{row[3]:,}",f"₦{row[2]*row[3]:,.2f}")
+        # Handle the updated_at column (index 4)
+        updated_at = row[4] if len(row) > 4 else "N/A"
+        # Format the date nicely if it exists
+        if updated_at and updated_at != "N/A":
+            try:
+                # Convert database timestamp to readable format
+                dt = datetime.strptime(updated_at, "%Y-%m-%d %H:%M:%S")
+                formatted_date = dt.strftime("%m/%d/%Y %I:%M %p")
+            except:
+                formatted_date = updated_at
+        else:
+            formatted_date = "Never"
+            
+        val=(row[0],row[1],f"₦{row[2]:,.2f}",f"{row[3]:,}",f"₦{row[2]*row[3]:,.2f}",formatted_date)
         tree.insert("", "end", values=val, tags=('evenrow' if i%2==0 else 'oddrow',))
     update_totals()
 
@@ -325,11 +456,14 @@ def sort_treeview(col, reverse):
 def initialize_app():
     global root, style, login_frame, inventory_frame
     root=tb.Window(title="Optiedge Inventory System",themename="litera"); root.state('zoomed'); root.minsize(1000,700)
+    root.iconbitmap("logo.ico")
+
     style=tb.Style(theme="litera"); setup_styles()
     login_frame=tk.Frame(root); inventory_frame=tk.Frame(root)
     setup_login_frame(); create_inventory_frame()
     root.protocol("WM_DELETE_WINDOW", lambda: sys.exit(0))
     root.mainloop()
+    
 
 # --- Main ---
 if __name__=="__main__":
